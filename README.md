@@ -2,11 +2,11 @@
 
 # Owned Group Check
 
-**Quét bất đồng bộ toàn bộ group Rank 255 từ cookie `.ROBLOSECURITY`, tách luồng auth Direct IP / public qua Tor, live Discord embed và chốt `scan_report.zip` ngay trong RAM.**
+**Asynchronously scan all Rank 255 groups from `.ROBLOSECURITY` cookies, with split auth Direct IP / public-over-Tor routing, live Discord embeds, and an in-RAM `scan_report.zip`.**
 
 [![Version](https://img.shields.io/badge/version-v2.5.0-00E5FF?style=for-the-badge)](main.py)
 [![Python](https://img.shields.io/badge/python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white)](requirements.txt)
-[![License: MIT](https://img.shields.io/badge/License-MIT-FFD700?style=for-the-badge)](#9-license)
+[![License: MIT](https://img.shields.io/badge/License-MIT-FFD700?style=for-the-badge)](#8-license)
 
 </div>
 
@@ -38,7 +38,7 @@ Filters     : R$100+ · pend 50+
 [Ctrl+C to stop]
 ```
 
-Discord preview (thực tế từ `AccountStatus` + `send_grand_totals_webhook`):
+Discord preview (actual output from `AccountStatus` + `send_grand_totals_webhook`):
 
 ```text
 ✅ [ACC 1/10] LakoAcc01
@@ -48,9 +48,9 @@ robux   : 15,400
 pending : 4,200
 👑 Matched Groups (2)
 • [1234567](https://www.roblox.com/groups/1234567) — 12,000 Robux · 4,000 Pending
-• [8889999](https://www.roblox.com/groups/8889999) [⚠ MẤT QUYỀN] — 3,400 Robux
+• [8889999](https://www.roblox.com/groups/8889999) [⚠ LOST OWNERSHIP] — 3,400 Robux
 
-💎 Grand Totals — Tất cả account
+💎 Grand Totals — All accounts
 accounts: 10
 groups  : 420
 matched : 15
@@ -60,10 +60,10 @@ combined: 97,500
 📎 scan_report.zip (matched_groups.txt + unresolved_groups.txt)
 ```
 
-Report style (1 group / 1 dòng, không kẻ bảng):
+Report style (1 group / 1 line, no table borders):
 
 ```text
-# matched_groups.txt — sort giảm dần robux+pending
+# matched_groups.txt — sorted descending by robux+pending
 https://www.roblox.com/groups/1234567 - LakoAcc01 - 12,000 Robux · 4,000 Pending
 https://www.roblox.com/groups/8889999 - LakoAcc01 - 3,400 Robux · 25 Clothing
 
@@ -73,23 +73,23 @@ https://www.roblox.com/groups/4443332 - LakoAcc01
 
 ## 2. Features
 
-- **Async engine (`asyncio` + `aiohttp`, `main.py` ~3.198 dòng / 88 hàm):** quét song song group bằng `Semaphore(3)`, gom 6 nhánh API (`currency`, `revenue`, `games`, `clothing`, `thumbnail`, `basic`) trong một lượt `gather` kèm timeout bảo vệ.
-- **Split-session an toàn token:** request mang `.ROBLOSECURITY` / `x-csrf-token` luôn đi IP gốc; dữ liệu public (games, visits, clothing, group info) đi session trần, qua Tor khi bật.
-- **Multi-instance Tor (`tor/tor_manager.py` + `tor/tor.exe`):** mỗi account / vòng re-check dùng credential `IsolateSOCKSAuth` riêng để ép circuit và exit IP mới.
-- **Chống rate-limit:** `DomainPacer` giãn nhịp theo domain, 429 thì nhân đôi interval và hạ dần sau chuỗi thành công; 403 tự bắt `x-csrf-token` mới để retry.
-- **Xác thực chủ 2 lớp:** lọc `rank == 255` rồi đối chiếu `owner.userId` với `current_user_id`; group kẹt rank nhưng mất quyền bị gắn `[⚠ MẤT QUYỀN]` (`fake_own`).
-- **Re-check 2 vòng:** `PARTIAL` / `SENT_PARTIAL` / `FAIL` / `WEBHOOK_FAIL` được quét bù đúng nhánh lỗi (`_ok`), `_undo_result_stats` hoàn tác trước khi quét lại nên không đếm đôi; giữ bất biến `checked_success + checked_failed == owned_groups`.
-- **Báo cáo gọn:** mỗi account 1 Discord message tự `PATCH` (`MAX_LISTED = 15`, sort `robux+pending` giảm dần); cuối phiên 1 embed Grand Totals YAML 6 dòng + điều kiện `recheck/partial/failed/fake_own`, kèm `scan_report.zip` nén trong RAM bằng `io.BytesIO` + `zipfile` (không ghi file rác).
-- **Đã kiểm chứng:** `python -m py_compile main.py` OK; bộ `test_status_embed.py` / `test_smoke.py` / `test_ui_dash.py` đều `ALL TESTS PASSED`.
+- **Async engine (`asyncio` + `aiohttp`, `main.py` ~3,198 lines / 88 functions):** scans groups concurrently with `Semaphore(3)`, fetching 6 API branches (`currency`, `revenue`, `games`, `clothing`, `thumbnail`, `basic`) in a single guarded `gather` call with timeout protection.
+- **Token-safe split session:** requests carrying `.ROBLOSECURITY` / `x-csrf-token` always go over the origin IP; public data (games, visits, clothing, group info) uses a bare session, routed through Tor when enabled.
+- **Multi-instance Tor (`tor/tor_manager.py` + `tor/tor.exe`):** each account / re-check round uses a dedicated `IsolateSOCKSAuth` credential to force a fresh circuit and exit IP.
+- **Rate-limit resistance:** `DomainPacer` paces requests per domain, doubles the interval on 429 and cools down after a success streak; 403 responses auto-heal by picking up the new `x-csrf-token` for retry.
+- **Two-layer ownership verification:** filters `rank == 255`, then cross-checks `owner.userId` against `current_user_id`; groups stuck at rank 255 without real ownership are flagged `[⚠ LOST OWNERSHIP]` (`fake_own`).
+- **2-round re-check:** `PARTIAL` / `SENT_PARTIAL` / `FAIL` / `WEBHOOK_FAIL` results are retried on failed branches only (`_ok`), with `_undo_result_stats` reverting old stats first so totals are never double-counted; preserves the invariant `checked_success + checked_failed == owned_groups`.
+- **Compact reporting:** one auto-`PATCH`ed Discord message per account (`MAX_LISTED = 15`, sorted descending by `robux+pending`); one Grand Totals YAML embed at the end (6 core lines plus conditional `recheck/partial/failed/fake_own`) with `scan_report.zip` compressed in RAM via `io.BytesIO` + `zipfile` (no junk files on disk).
+- **Verified:** `python -m py_compile main.py` passes; `test_status_embed.py` / `test_smoke.py` / `test_ui_dash.py` all report `ALL TESTS PASSED`.
 
 ## 3. Disclaimer & Security Warning
 
 > [!CAUTION]
-> **Đọc kỹ trước khi dùng:**
+> **Read carefully before use:**
 >
-> - **Rủi ro khóa tài khoản (TOS Roblox):** quét hàng loạt có thể bị giới hạn IP / khóa acc. Tool phục vụ nghiên cứu và kiểm kê tài sản cá nhân. **Tác giả không chịu trách nhiệm** cho mọi mất mát tài khoản, Robux hay dữ liệu.
-> - **Tuyệt đối KHÔNG chia sẻ token/cookie/password:** `.ROBLOSECURITY` tương đương toàn quyền acc (vượt 2FA). Không gửi `cookies.txt` hay `config.json` (chứa webhook URL) cho bất kỳ ai.
-> - **Chặn lộ secret lên git:** repo hiện **chưa có `.gitignore`**. Trước khi `git init` / push, hãy tạo `.gitignore` chứa ít nhất:
+> - **Account-ban risk (Roblox ToS):** bulk scanning may trigger IP limits / account bans. This tool is for research and personal asset inventory. **The author is not responsible** for any account, Robux, or data loss.
+> - **NEVER share tokens/cookies/passwords:** `.ROBLOSECURITY` grants full account access (bypasses 2FA). Never send `cookies.txt` or `config.json` (which contains your webhook URL) to anyone.
+> - **Prevent secret leaks on git:** this repo currently has **no `.gitignore`**. Before `git init` / push, create a `.gitignore` containing at least:
 >
 > ```gitignore
 > config.json
@@ -102,15 +102,15 @@ https://www.roblox.com/groups/4443332 - LakoAcc01
 
 ## 4. Quick Start
 
-Yêu cầu: **Windows 10/11 + Python 3.9+** (đã kiểm tra chạy tốt trên Python 3.11.6).
+Requirements: **Windows 10/11 + Python 3.9+** (verified working on Python 3.11.6).
 
 ```powershell
 pip install -r requirements.txt
 ```
 
-Phụ thuộc thực tế (`requirements.txt`, 3 gói): `aiohttp>=3.9.0`, `rich>=13.7.0`, `psutil>=5.9.0`.
+Actual dependencies (`requirements.txt`, 3 packages): `aiohttp>=3.9.0`, `rich>=13.7.0`, `psutil>=5.9.0`.
 
-Chuẩn bị `cookies.txt` (mỗi dòng 1 cookie, bắt đầu bằng `_|WARNING:-DO-NOT-SHARE-THIS.`, trùng lặp tự lọc) và `config.json`:
+Prepare `cookies.txt` (one cookie per line, starting with `_|WARNING:-DO-NOT-SHARE-THIS.`, duplicates auto-filtered) and `config.json`:
 
 ```json
 {
@@ -122,45 +122,45 @@ Chuẩn bị `cookies.txt` (mỗi dòng 1 cookie, bắt đầu bằng `_|WARNING
 }
 ```
 
-| Trường | Kiểu | Mô tả |
+| Field | Type | Description |
 | :--- | :--- | :--- |
-| `webhook_url` | `string` | Discord webhook nhận embed và `scan_report.zip`. |
-| `discord_id` | `string` | ID để ping `<@id>` khi có group đạt filter. |
-| `status_embed` | `bool` | `true` = 1 message live/account; `false` = webhook lẻ từng group. |
-| `terminal_ui` | `string` | `"dashboard"` (ANSI live) hoặc `"classic"` (log Rich). |
-| `tor.enabled/amount/port` | `bool/int/int` | Bật Tor public, số tunnel, cổng SOCKS5 bắt đầu. |
+| `webhook_url` | `string` | Discord webhook receiving embeds and `scan_report.zip`. |
+| `discord_id` | `string` | User ID to ping as `<@id>` when a group passes the filters. |
+| `status_embed` | `bool` | `true` = 1 live message/account; `false` = one-off webhook per group. |
+| `terminal_ui` | `string` | `"dashboard"` (live ANSI) or `"classic"` (Rich log). |
+| `tor.enabled/amount/port` | `bool/int/int` | Enable public Tor routing, tunnel count, starting SOCKS5 port. |
 
-Chạy:
+Run:
 
 ```powershell
 python main.py
 ```
 
-Sau đó nhập ngưỡng filter theo wizard (Robux, Pending, Games, Visits, Clothing).
+Then enter the filter thresholds in the wizard (Robux, Pending, Games, Visits, Clothing).
 
-## 5. Cấu trúc thư mục & Workflow
+## 5. Directory Structure & Workflow
 
 ```text
 Owned-group-check/
 ├── main.py              # Scanner v2.5.0: async engine, DomainPacer, UI, webhook, ZIP
-├── config.json          # Webhook, Discord ID, UI, Tor (KHÔNG commit file thật)
-├── cookies.txt          # Input cookie (KHÔNG commit file thật)
+├── config.json          # Webhook, Discord ID, UI, Tor (NEVER commit the real file)
+├── cookies.txt          # Cookie input (NEVER commit the real file)
 ├── requirements.txt     # aiohttp, rich, psutil
 └── tor/
     ├── __init__.py
-    ├── tor_manager.py   # Vòng đời N tiến trình tor.exe, IsolateSOCKSAuth
-    └── tor.exe          # Binary Tor (Windows)
+    ├── tor_manager.py   # Lifecycle of N tor.exe processes, IsolateSOCKSAuth
+    └── tor.exe          # Tor binary (Windows)
 ```
 
-Luồng chạy (`GroupScanner.start` trong `main.py`):
+Runtime flow (`GroupScanner.start` in `main.py`):
 
 ```text
 Input (cookies.txt + config.json + filter wizard)
-  → scan_cookie từng acc (auth Direct IP, public qua Tor nếu bật)
-  → check_and_send từng group (Semaphore 3, commit stats atomic 1 lần)
-  → run_recheck_pass 2 vòng (undo stats cũ, chỉ fetch nhánh lỗi)
-  → send_grand_totals_webhook (YAML gọn + scan_report.zip trong RAM)
-Output (dashboard terminal + Discord embed/account + Grand Totals + ZIP)
+  → scan_cookie per account (auth over Direct IP, public via Tor if enabled)
+  → check_and_send per group (Semaphore 3, single atomic stats commit)
+  → run_recheck_pass 2 rounds (undo old stats, fetch failed branches only)
+  → send_grand_totals_webhook (compact YAML + in-RAM scan_report.zip)
+Output (terminal dashboard + Discord embed/account + Grand Totals + ZIP)
 ```
 
 ```mermaid
@@ -169,15 +169,15 @@ flowchart TD
     B --> C{rank 255?}
     C -- no --> D[skip]
     C -- yes --> E[check_and_send: Semaphore 3]
-    E --> F{dat filter?}
+    E --> F{passes filter?}
     F -- yes --> G[SENT / SENT_PARTIAL / WEBHOOK_FAIL]
-    F -- no + loi metric --> H[PARTIAL]
+    F -- no + metric error --> H[PARTIAL]
     F -- no --> I[SKIP]
     H --> J[recheck_queue]
-    G --> K{loi gui webhook?}
+    G --> K{webhook send error?}
     K -- SENT_PARTIAL / WEBHOOK_FAIL / FAIL --> J
-    J --> L[run_recheck_pass x2: undo + fetch nhanh loi]
-    L --> M{van loi?}
+    J --> L[run_recheck_pass x2: undo + fetch failed branches]
+    L --> M{still failing?}
     M -- yes --> N[unresolved_groups]
     M -- no --> O[recovered]
     G --> P[all_matched_groups]
@@ -188,16 +188,16 @@ flowchart TD
 ## 6. Troubleshooting / FAQ
 
 1. **`ModuleNotFoundError: No module named 'aiohttp'`**
-   Chưa cài deps hoặc sai interpreter. Chạy `python -m pip install -r requirements.txt` đúng venv rồi chạy lại `python main.py`.
+   Dependencies missing or wrong interpreter. Run `python -m pip install -r requirements.txt` in the same venv, then retry `python main.py`.
 
-2. **Sai format cookie / `401 Unauthorized`, không quét được acc**
-   Cookie phải nguyên dòng, bắt đầu bằng `_|WARNING:-DO-NOT-SHARE-THIS.`. Cookie `401/403` được đếm vào `invalid_cookies`, không đưa vào scan. Lấy cookie mới và giữ mỗi cookie 1 dòng trong `cookies.txt`.
+2. **Bad cookie format / `401 Unauthorized`, account not scannable**
+   Cookies must be full lines starting with `_|WARNING:-DO-NOT-SHARE-THIS.`. Cookies returning `401/403` are counted as `invalid_cookies` and skipped. Grab a fresh cookie and keep one cookie per line in `cookies.txt`.
 
-3. **Token/CSRF hết hạn (`403`, `x-csrf-token`) hoặc proxy/Tor lỗi**
-   Code đã tự bắt `x-csrf-token` mới từ header `403` để retry. Nếu Tor chiếm cổng (`port` trong `tor` bị kẹt) hoặc thiếu `tor/tor.exe`, đặt `"tor": {"enabled": false}` để chạy Direct IP hoàn toàn.
+3. **Expired token/CSRF (`403`, `x-csrf-token`) or proxy/Tor errors**
+   The code auto-picks a fresh `x-csrf-token` from the `403` header for retry. If a Tor `port` is occupied or `tor/tor.exe` is missing, set `"tor": {"enabled": false}` to run fully on Direct IP.
 
-4. **Rate-limit `429` / group kẹt `PARTIAL`, quét chậm dần**
-   Hành vi dự kiến khi Roblox giới hạn IP. `DomainPacer` tự giãn nhịp; cuối phiên `run_recheck_pass` đổi exit IP và quét bù đúng nhánh lỗi. Tăng `tor.amount` (ví dụ 2 → 5) để phân tải, và đợi ZIP cuối cùng thay vì dừng giữa chừng.
+4. **Rate-limit `429` / groups stuck at `PARTIAL`, scan slowing down**
+   Expected when Roblox throttles an IP. `DomainPacer` auto-throttles; at the end `run_recheck_pass` rotates the exit IP and refetches only failed branches. Raise `tor.amount` (e.g. 2 → 5) for better distribution, and wait for the final ZIP instead of stopping early.
 
 ## 7. Connect & Support
 
