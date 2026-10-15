@@ -1,6 +1,6 @@
 <div align="center">
 
-# Owned Group Check
+# Roblox Owned Group Checker
 
 **Asynchronously scan all Rank 255 groups from `.ROBLOSECURITY` cookies, with split auth Direct IP / public-over-Tor routing, live Discord embeds, and an in-RAM `scan_report.zip`.**
 
