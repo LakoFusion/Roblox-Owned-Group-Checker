@@ -1,0 +1,7 @@
+{
+    "webhook_url": "",
+    "discord_id": "1216388407337680936",
+    "status_embed": true,
+    "terminal_ui": "dashboard",
+    "tor": { "enabled": true, "amount": 2, "port": 10080 }
+}
